@@ -1,0 +1,16 @@
+[
+  {
+    "label": "Build (debug)",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "command": "bash -c 'cmake --build cmake-build-debug'",
+    "use_new_terminal": false,
+    "reveal": "always",
+  },
+  {
+    "label": "Run (debug)",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "command": "bash -c 'open  cmake-build-debug/osx-overlay.app'",
+    "use_new_terminal": false,
+    "reveal": "always",
+  },
+]

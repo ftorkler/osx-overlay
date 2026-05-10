@@ -1,5 +1,25 @@
 import Cocoa
 
+class TextDrawView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        // Define the text and attributes
+        let text = "Hello, macOS!"
+        let font = NSFont.boldSystemFont(ofSize: 24)
+        let color = NSColor.white
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color
+        ]
+
+        // Draw the text at a specific position (e.g., center of the view)
+        let position = CGPoint(x: 50, y: 100)
+        text.draw(at: position, withAttributes: attributes)
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
 
@@ -10,6 +30,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
     }
+}
+
+func createTextField(text: String, size: Int, color: Color = Color(255,255,255,255)) -> NSTextField {
+    let attributedString = NSAttributedString(string: text, attributes: [
+        .foregroundColor: NSColor(red: CGFloat(color.r)/255.0, green: CGFloat(color.g)/255.0, blue: CGFloat(color.b)/255.0, alpha: CGFloat(color.a)/255.0),
+        .font: NSFont.systemFont(ofSize: CGFloat(size))
+    ])
+
+    // let boundingBox = attributedString.boundingRect()
+    // let frame = NSRect(x: 200, y: 200, width: 800, height: 600)
+
+    let label = NSTextField()
+    label.isEditable = false
+    label.isBezeled = false
+    label.drawsBackground = false
+    label.isSelectable = false
+    label.attributedStringValue = attributedString
+    return label
 }
 
 func buildLine(word1Color: NSColor, word1Size: CGFloat,
@@ -73,8 +111,12 @@ func createWindow() -> NSWindow {
     let label2 = makeLabel(frame: NSRect(x: 20, y: 260, width: 760, height: 50),
                            attributedString: line2)
 
-    window.contentView?.addSubview(label1)
-    window.contentView?.addSubview(label2)
+    let contentView = TextDrawView()
+    contentView.translatesAutoresizingMaskIntoConstraints = false
+    window.contentView = contentView
+
+    // window.contentView?.addSubview(label1)
+    // window.contentView?.addSubview(label2)
 
     return window
 }
