@@ -51,10 +51,10 @@ static id createWindow() {
     CGRect frame = {{200, 200}, {800, 600}};
 
     // NSWindowStyleMask flags
-    unsigned long styleMask = (1 << 0)   // titled
-                            | (1 << 1)   // closable
-                            | (1 << 2)   // miniaturizable
-                            | (1 << 3);  // resizable
+    unsigned long styleMask = (0 << 0)   // titled
+                            | (0 << 1)   // closable
+                            | (0 << 2)   // miniaturizable
+                            | (0 << 3);  // resizable
 
     // [[NSWindow alloc] initWithContentRect:frame
     //                             styleMask:styleMask
