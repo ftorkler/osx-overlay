@@ -67,8 +67,40 @@ static id createWindow() {
 
     // [window setTitle:@"OSX Overlay"]
     id title = msg(reinterpret_cast<id>(cls("NSString")),
-                   sel_registerName("stringWithUTF8String:"), "OSX Overlay C++");
+                   sel_registerName("stringWithUTF8String:"), "OSX Overlay");
     msg(window, sel_registerName("setTitle:"), title);
+
+    // ── Add a red "Hello world!" label ──────────────────────────────
+
+    // Create NSTextField label
+    CGRect labelFrame = {{20, 260}, {760, 40}};
+    id label = msg(reinterpret_cast<id>(cls("NSTextField")), sel_registerName("alloc"));
+    label = reinterpret_cast<id (*)(id, SEL, CGRect)>(objc_msgSend)(
+        label, sel_registerName("initWithFrame:"), labelFrame);
+
+    // Set string value to "Hello world!"
+    id text = msg(reinterpret_cast<id>(cls("NSString")),
+                  sel_registerName("stringWithUTF8String:"), "Hello world!");
+    msg(label, sel_registerName("setStringValue:"), text);
+
+    // Make it a non-editable label
+    msg<void>(label, sel_registerName("setEditable:"), NO);
+    msg<void>(label, sel_registerName("setBezeled:"), NO);
+    msg<void>(label, sel_registerName("setDrawsBackground:"), NO);
+    msg<void>(label, sel_registerName("setSelectable:"), NO);
+
+    // Set red text color: [NSColor redColor]
+    id redColor = msg(reinterpret_cast<id>(cls("NSColor")), sel_registerName("redColor"));
+    msg(label, sel_registerName("setTextColor:"), redColor);
+
+    // Set font size: [NSFont systemFontOfSize:24]
+    id font = reinterpret_cast<id (*)(id, SEL, double)>(objc_msgSend)(
+        reinterpret_cast<id>(cls("NSFont")), sel_registerName("systemFontOfSize:"), 24.0);
+    msg(label, sel_registerName("setFont:"), font);
+
+    // Add label to window's content view
+    id contentView = msg(window, sel_registerName("contentView"));
+    msg(contentView, sel_registerName("addSubview:"), label);
 
     return window;
 }
