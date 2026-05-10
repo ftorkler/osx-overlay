@@ -132,8 +132,6 @@ public final class Gui {
         let w = window.getWidth()
         let h = window.getHeight()
 
-        print("DEBUG performDraw: w=\(w) h=\(h) lines=\(lines.count)")
-
         canvas.ensureBitmap(width: w, height: h)
         canvas.clearBitmap()
 
@@ -145,12 +143,10 @@ public final class Gui {
         canvas.selectFont(0)
 
         let a = mouseOver ? mouseOverAlpha : alpha
-        print("DEBUG performDraw: alpha=\(a) fgColor=\(fgColor) bgColor=\(bgColor)")
 
         // Draw all backgrounds first
         DrawColorCmd(bgColor).draw(canvas: canvas, alpha: a)
-        for (i, line) in lines.enumerated() {
-            print("DEBUG line[\(i)]: x=\(line.x) y=\(line.y) w=\(line.w) h=\(line.h) baseline=\(line.baseline) bgCmds=\(line.drawBgCommands.count) fgCmds=\(line.drawFgCommands.count)")
+        for line in lines {
             line.drawBg(canvas: canvas, alpha: a)
         }
 
@@ -160,26 +156,7 @@ public final class Gui {
             line.drawFg(canvas: canvas, alpha: a)
         }
 
-        // DEBUG: Save bitmap to PNG
-        if let image = canvas.makeBitmapImage() {
-            print("DEBUG: CGImage created: \(image.width)x\(image.height) bpc=\(image.bitsPerComponent) bpp=\(image.bitsPerPixel) alphaInfo=\(image.alphaInfo.rawValue)")
-            let url = URL(fileURLWithPath: "/tmp/osx-overlay-debug.png")
-            if let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
-                CGImageDestinationAddImage(dest, image, nil)
-                if CGImageDestinationFinalize(dest) {
-                    print("DEBUG: Bitmap saved to /tmp/osx-overlay-debug.png")
-                } else {
-                    print("DEBUG: Failed to finalize PNG")
-                }
-            } else {
-                print("DEBUG: Failed to create image destination")
-            }
-            // Set the rendered bitmap as the layer contents
-            window.setRenderedImage(image)
-        } else {
-            print("DEBUG: makeBitmapImage() returned nil!")
-            window.setRenderedImage(nil)
-        }
+        window.setRenderedImage(canvas.makeBitmapImage())
     }
 
     // MARK: - Messages
