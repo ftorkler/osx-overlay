@@ -619,13 +619,13 @@ public final class Config {
     // MARK: - Exit Helpers
 
     static func exitWithVersionNumber() {
-        Swift.print("overlay 1.0.0")
+        Swift.print("osx-overlay 1.0.0.RC")
         exit(0)
     }
 
     static func exitWithUsage(exitCode: Int32) {
         Swift.print("""
-        usage: overlay [OPTIONS] <INPUT_FILE>
+        usage: osx-overlay [OPTIONS] <INPUT_FILE>
 
           -c, --config=FILE       file path to read configuration from
           -h, --help              prints this help text
