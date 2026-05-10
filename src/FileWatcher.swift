@@ -12,33 +12,7 @@ public final class FileWatcher {
 
     init(_ filename: String) {
         self.filePath = filename
-
-        fileDescriptor = open(filename, O_EVTONLY)
-        if fileDescriptor < 0 {
-            print("File cannot be monitored: error opening '\(filename)'")
-            return
-        }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fileDescriptor,
-            eventMask: [.write, .delete, .rename, .attrib],
-            queue: DispatchQueue.global(qos: .utility)
-        )
-
-        source.setEventHandler { [weak self] in
-            self?.fileChanged = true
-        }
-
-        source.setCancelHandler { [weak self] in
-            guard let self = self else { return }
-            if self.fileDescriptor >= 0 {
-                close(self.fileDescriptor)
-                self.fileDescriptor = -1
-            }
-        }
-
-        source.resume()
-        self.source = source
+        setupDispatchSource(for: filename)
     }
 
     deinit {
@@ -59,31 +33,45 @@ public final class FileWatcher {
                 // Re-open to handle file replacement (common with atomic writes)
                 source?.cancel()
                 close(fileDescriptor)
-
-                fileDescriptor = open(filePath, O_EVTONLY)
-                if fileDescriptor >= 0 {
-                    let newSource = DispatchSource.makeFileSystemObjectSource(
-                        fileDescriptor: fileDescriptor,
-                        eventMask: [.write, .delete, .rename, .attrib],
-                        queue: DispatchQueue.global(qos: .utility)
-                    )
-                    newSource.setEventHandler { [weak self] in
-                        self?.fileChanged = true
-                    }
-                    newSource.setCancelHandler { [weak self] in
-                        guard let self = self else { return }
-                        if self.fileDescriptor >= 0 {
-                            close(self.fileDescriptor)
-                            self.fileDescriptor = -1
-                        }
-                    }
-                    newSource.resume()
-                    self.source = newSource
-                }
+                fileDescriptor = -1
+                setupDispatchSource(for: filePath)
             }
 
             return true
         }
         return false
+    }
+
+    /// Opens the file and creates a dispatch source to monitor it for changes.
+    /// Replaces any existing file descriptor and source.
+    private func setupDispatchSource(for path: String) {
+        let fd = open(path, O_EVTONLY)
+        if fd < 0 {
+            print("File cannot be monitored: error opening '\(path)'")
+            return
+        }
+
+        fileDescriptor = fd
+
+        let newSource = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename, .attrib],
+            queue: DispatchQueue.global(qos: .utility)
+        )
+
+        newSource.setEventHandler { [weak self] in
+            self?.fileChanged = true
+        }
+
+        newSource.setCancelHandler { [weak self] in
+            guard let self = self else { return }
+            if self.fileDescriptor >= 0 {
+                close(self.fileDescriptor)
+                self.fileDescriptor = -1
+            }
+        }
+
+        newSource.resume()
+        self.source = newSource
     }
 }
