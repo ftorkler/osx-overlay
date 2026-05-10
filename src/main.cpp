@@ -22,8 +22,8 @@ static void appDidFinishLaunching(id self, SEL, id /*notification*/) {
     id window = nullptr;
     object_getInstanceVariable(self, "window", reinterpret_cast<void **>(&window));
 
-    // [window makeKeyAndOrderFront:nil]
-    msg(window, sel_registerName("makeKeyAndOrderFront:"), static_cast<id>(nullptr));
+    // [window orderFrontRegardless] — show without taking focus
+    msg(window, sel_registerName("orderFrontRegardless"));
 }
 
 static BOOL appShouldTerminateAfterLastWindowClosed(id, SEL, id) {
@@ -76,6 +76,18 @@ static id createWindow() {
     id clearColor = msg(reinterpret_cast<id>(cls("NSColor")), sel_registerName("clearColor"));
     msg(window, sel_registerName("setBackgroundColor:"), clearColor);
 
+    // ── Always on top, no focus, ignore input ───────────────────────
+
+    // [window setLevel:NSScreenSaverWindowLevel (1000)] — above all normal windows
+    msg<void>(window, sel_registerName("setLevel:"), 1000L);
+
+    // [window setIgnoresMouseEvents:YES] — clicks pass through
+    msg<void>(window, sel_registerName("setIgnoresMouseEvents:"), YES);
+
+    // Don't let the window become key or main (no keyboard focus)
+    // We'll use a borderless-panel approach: setCanBecomeKey/Main overridden below
+    msg<void>(window, sel_registerName("setHidesOnDeactivate:"), NO);
+
     // ── Add a red "Hello world!" label ──────────────────────────────
 
     // Create NSTextField label
@@ -118,8 +130,9 @@ int main() {
     id app = msg(reinterpret_cast<id>(cls("NSApplication")),
                  sel_registerName("sharedApplication"));
 
-    // [app setActivationPolicy:NSApplicationActivationPolicyRegular (0)]
-    msg<void>(app, sel_registerName("setActivationPolicy:"), 0L);
+    // [app setActivationPolicy:NSApplicationActivationPolicyAccessory (1)]
+    // Accessory app: no Dock icon, no menu bar, does not take focus
+    msg<void>(app, sel_registerName("setActivationPolicy:"), 1L);
 
     // Create AppDelegate, instantiate it, attach window
     Class delegateCls = registerAppDelegateClass();
