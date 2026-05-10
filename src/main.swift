@@ -1,30 +1,150 @@
 import Cocoa
+import Foundation
 
-class TextDrawView: NSView {
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
+// MARK: - Constants
 
-        // Define the text and attributes
-        let text = "Hello, macOS!"
-        let font = NSFont.boldSystemFont(ofSize: 24)
-        let color = NSColor.white
+let LINE_LIMIT = 100
+let CHECK_GUI_INTERVAL_MS: UInt32 = 50
 
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: color
-        ]
+// MARK: - Globals
+var gui: Gui?
+var running = true
 
-        // Draw the text at a specific position (e.g., center of the view)
-        let position = CGPoint(x: 50, y: 100)
-        text.draw(at: position, withAttributes: attributes)
+// MARK: - Signal Handling
+
+func sigHandler(_ signum: Int32) {
+    running = false
+    CFRunLoopStop(CFRunLoopGetMain())
+}
+
+func catchSigterm() {
+    signal(SIGINT, sigHandler)
+    signal(SIGTERM, sigHandler)
+}
+
+// MARK: - Input File Loading
+
+func loadInputFile(_ filename: String) {
+    guard let gui = gui else { return }
+    gui.clearMessages()
+
+    guard let content = try? String(contentsOfFile: filename, encoding: .utf8) else {
+        print("ERROR: cannot read input file '\(filename)'")
+        return
+    }
+
+    let lines = content.components(separatedBy: "\n")
+    for (i, line) in lines.enumerated() {
+        if i >= LINE_LIMIT { break }
+        gui.addMessage(line)
     }
 }
 
+// MARK: - Config Reading
+
+func readConfig() -> Config {
+    // Skip the first argument (program name) and filter out macOS-injected args
+    let allArgs = CommandLine.arguments
+    var args: [String] = []
+    var skipNext = false
+    for (i, arg) in allArgs.enumerated() {
+        if i == 0 { continue } // skip program name
+        if skipNext { skipNext = false; continue }
+        // Skip macOS-injected arguments like -NSDocumentRevisionsDebugMode
+        if arg.hasPrefix("-NS") || arg.hasPrefix("-Apple") {
+            skipNext = true
+            continue
+        }
+        args.append(arg)
+    }
+
+    let configFromParameters = Config.fromParameters(args)
+    let configFromFile: Config
+    if !configFromParameters.configFile.isEmpty {
+        configFromFile = Config.fromFile(configFromParameters.configFile, suppressWarning: false)
+    } else {
+        configFromFile = Config.fromFile(Config.getDefaultConfigFilePath(), suppressWarning: true)
+    }
+
+    let config = Config.defaultConfig()
+        .overrideWith(configFromFile)
+        .overrideWith(configFromParameters)
+
+    if config.inputFile.isEmpty {
+        print("ERROR: parameter 'INPUT_FILE' needs a value")
+        print("")
+        Config.exitWithUsage(exitCode: 1)
+    }
+
+    if config.verbose {
+        var output = ""
+        config.print(to: &output)
+        Swift.print(output)
+    }
+
+    return config
+}
+
+// MARK: - Application Delegate
+
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var window: NSWindow!
+    var timer: Timer?
+    var config: Config!
+    var fileWatcher: FileWatcher!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        window.orderFrontRegardless()
+        config = readConfig()
+        fileWatcher = FileWatcher(config.inputFile)
+
+        gui = Gui()
+
+        // Positioning
+        gui!.setOrientation(config.orientation)
+        gui!.setScreenEdgeSpacing(config.screenEdgeSpacing)
+        gui!.setLineSpacing(config.lineSpacing)
+        gui!.setMonitorIndex(config.monitorIndex)
+
+        // Font
+        for i in 0..<10 {
+            let fontName = !config.fontName[i].isEmpty ? config.fontName[i] : config.fontName[0]
+            let fontSize = config.fontSize[i] != 0 ? config.fontSize[i] : config.fontSize[0]
+            if !config.fontName[i].isEmpty || config.fontSize[i] != 0 {
+                gui!.setFont(fontIndex: UInt(i), font: fontName + "-" + String(fontSize))
+            }
+        }
+
+        // Colors
+        gui!.setColorProfile(config.colorProfile)
+        gui!.setDefaultForegroundColor(config.defaultForegroundColor)
+        gui!.setDefaultBackgroundColor(config.defaultBackgroundColor)
+
+        // Behavior
+        gui!.setDimming(Float(config.dimming) / 100.0)
+        gui!.setMouseOverDimming(Float(config.mouseOverDimming) / 100.0)
+        gui!.setMouseOverTolerance(config.mouseOverTolerance)
+
+        // Load the input file
+        loadInputFile(config.inputFile)
+
+        // Show the window
+        gui!.showWindow()
+
+        // Start the render loop timer (every 50ms)
+        timer = Timer.scheduledTimer(withTimeInterval: TimeInterval(CHECK_GUI_INTERVAL_MS) / 1000.0, repeats: true) { [weak self] _ in
+            guard running else {
+                self?.timer?.invalidate()
+                NSApp.terminate(nil)
+                return
+            }
+
+            if self?.fileWatcher.hasFileBeenRewritten() == true {
+                if let inputFile = self?.config.inputFile {
+                    loadInputFile(inputFile)
+                }
+            }
+
+            gui?.flush()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -32,104 +152,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-func createTextField(text: String, size: Int, color: Color = Color(255,255,255,255)) -> NSTextField {
-    let attributedString = NSAttributedString(string: text, attributes: [
-        .foregroundColor: NSColor(red: CGFloat(color.r)/255.0, green: CGFloat(color.g)/255.0, blue: CGFloat(color.b)/255.0, alpha: CGFloat(color.a)/255.0),
-        .font: NSFont.systemFont(ofSize: CGFloat(size))
-    ])
+// MARK: - Main Entry Point
 
-    // let boundingBox = attributedString.boundingRect()
-    // let frame = NSRect(x: 200, y: 200, width: 800, height: 600)
-
-    let label = NSTextField()
-    label.isEditable = false
-    label.isBezeled = false
-    label.drawsBackground = false
-    label.isSelectable = false
-    label.attributedStringValue = attributedString
-    return label
-}
-
-func buildLine(word1Color: NSColor, word1Size: CGFloat,
-               word2Color: NSColor, word2Size: CGFloat) -> NSAttributedString {
-    let result = NSMutableAttributedString()
-
-    let part1 = NSAttributedString(string: "Hello ", attributes: [
-        .foregroundColor: word1Color,
-        .font: NSFont.systemFont(ofSize: word1Size)
-    ])
-    let part2 = NSAttributedString(string: "world!", attributes: [
-        .foregroundColor: word2Color,
-        .font: NSFont.systemFont(ofSize: word2Size)
-    ])
-
-    result.append(part1)
-    result.append(part2)
-    return result
-}
-
-func makeLabel(frame: NSRect, attributedString: NSAttributedString) -> NSTextField {
-    let label = NSTextField(frame: frame)
-    label.isEditable = false
-    label.isBezeled = false
-    label.drawsBackground = false
-    label.isSelectable = false
-    label.attributedStringValue = attributedString
-    return label
-}
-
-func createWindow() -> NSWindow {
-    let frame = NSRect(x: 200, y: 200, width: 800, height: 600)
-
-    let window = NSWindow(
-        contentRect: frame,
-        styleMask: .borderless,
-        backing: .buffered,
-        defer: false
-    )
-
-    window.title = "OSX Overlay"
-
-    // Fully transparent background
-    window.isOpaque = false
-    window.backgroundColor = .clear
-
-    // Always on top, no focus, ignore input
-    window.level = NSWindow.Level(rawValue: 1000) // NSScreenSaverWindowLevel
-    window.ignoresMouseEvents = true
-    window.hidesOnDeactivate = false
-
-    // Line 1: "Hello" red 20pt, "world!" green 24pt
-    let line1 = buildLine(word1Color: .red, word1Size: 20,
-                          word2Color: .green, word2Size: 24)
-    let label1 = makeLabel(frame: NSRect(x: 20, y: 310, width: 760, height: 40),
-                           attributedString: line1)
-
-    // Line 2: "Hello" blue 28pt, "world!" yellow 32pt
-    let line2 = buildLine(word1Color: .blue, word1Size: 22,
-                          word2Color: .yellow, word2Size: 32)
-    let label2 = makeLabel(frame: NSRect(x: 20, y: 260, width: 760, height: 50),
-                           attributedString: line2)
-
-    let contentView = TextDrawView()
-    contentView.translatesAutoresizingMaskIntoConstraints = false
-    window.contentView = contentView
-
-    // window.contentView?.addSubview(label1)
-    // window.contentView?.addSubview(label2)
-
-    return window
-}
-
-// ── main ────────────────────────────────────────────────────────────
+catchSigterm()
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-
+// app.setActivationPolicy(.accessory) // No dock icon, no menu bar
 let delegate = AppDelegate()
-delegate.window = createWindow()
-
-let test = Color(1, 1, 1, 1);
-
 app.delegate = delegate
 app.run()
