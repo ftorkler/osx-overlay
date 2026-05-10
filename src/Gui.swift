@@ -106,15 +106,18 @@ public final class Gui {
     // MARK: - Flush (Render Loop)
 
     func flush() {
+        // Check monitor changes first so lastMonitorFrame is populated
+        // before layoutLines() computes coordinates.
+        let monitorChanged = window.isActiveMonitorChanged()
+        if monitorChanged {
+            recalc = true
+            redraw = true
+        }
+
         layoutLines()
 
         let currentMouseOver = isMouseOver()
         redraw = redraw || (mouseOver != currentMouseOver)
-        let monitorChanged = window.isActiveMonitorChanged()
-        if monitorChanged {
-            _ = updateWindowPosition()
-            redraw = true
-        }
         mouseOver = currentMouseOver
 
         guard redraw else { return }

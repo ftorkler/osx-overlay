@@ -1,37 +1,34 @@
 import Cocoa
 
-/// Custom NSView that displays a CGImage as its layer contents.
-/// Uses a layer-backed approach for reliable rendering — the bitmap
-/// is drawn off-screen and set as the layer contents, which persists
-/// across window server compositing cycles.
+/// Custom NSView that draws a pre-rendered CGImage.
+/// Uses a flipped coordinate system (origin at top-left) to match
+/// the X11 coordinate system used in x11-overlay.
 final class OverlayContentView: NSView {
     private var renderedImage: CGImage?
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
+    override var isFlipped: Bool { return true }
+    override var isOpaque: Bool { return false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+
+        // Clear to transparent
+        ctx.clear(dirtyRect)
+
+        // Draw the pre-rendered bitmap if available
+        if let image = renderedImage {
+            let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+            // In a flipped view, CGContext.draw would draw upside-down.
+            // We need to undo the flip for the image draw.
+            ctx.saveGState()
+            ctx.translateBy(x: 0, y: CGFloat(image.height))
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(image, in: rect)
+            ctx.restoreGState()
+        }
     }
 
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-    }
-
-    override var wantsUpdateLayer: Bool { return true }
-
-    override func makeBackingLayer() -> CALayer {
-        let layer = CALayer()
-        layer.isOpaque = false
-        layer.contentsGravity = .topLeft
-        layer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0
-        return layer
-    }
-
-    override func updateLayer() {
-        layer?.contents = renderedImage
-    }
-
-    /// Sets the rendered bitmap as the layer contents and triggers a display.
+    /// Sets the rendered bitmap and triggers a redisplay.
     func setRenderedImage(_ image: CGImage?) {
         renderedImage = image
         needsDisplay = true
@@ -170,9 +167,10 @@ public final class OverlayWindow {
         return Position(x: relX, y: relY)
     }
 
-    /// Updates the layer contents with a rendered bitmap image.
+    /// Updates the view with a rendered bitmap image.
     func setRenderedImage(_ image: CGImage?) {
         contentView.setRenderedImage(image)
+        contentView.displayIfNeeded()
     }
 
     /// Shows the window.
