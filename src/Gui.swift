@@ -41,11 +41,6 @@ public final class Gui {
         setDefaultForegroundColor(Color(255, 255, 255, 200))
         setDefaultBackgroundColor(Color(0, 0, 0, 100))
         clearMessages()
-
-        // Set up the draw callback on the content view
-        window.contentView.drawCallback = { [weak self] dirtyRect in
-            self?.performDraw(dirtyRect)
-        }
     }
 
     // MARK: - Setters
@@ -122,31 +117,37 @@ public final class Gui {
         }
         mouseOver = currentMouseOver
 
-        redraw = true
         guard redraw else { return }
 
-        // Force the content view to redraw
-        window.contentView.needsDisplay = true
-        window.contentView.display()
+        performDraw()
 
         redraw = false
     }
 
-    /// Actual drawing callback invoked by the content view's draw(_:) method.
-    private func performDraw(_ dirtyRect: NSRect) {
+    /// Renders all content into the off-screen bitmap and sets it as the layer contents.
+    private func performDraw() {
+        let w = window.getWidth()
+        let h = window.getHeight()
 
-        // Clear the view
-        NSColor.clear.setFill()
-        dirtyRect.fill()
+        print("DEBUG performDraw: w=\(w) h=\(h) lines=\(lines.count)")
 
-        guard !lines.isEmpty else { return }
+        canvas.ensureBitmap(width: w, height: h)
+        canvas.clearBitmap()
+
+        guard !lines.isEmpty else {
+            window.setRenderedImage(nil)
+            return
+        }
+
         canvas.selectFont(0)
 
         let a = mouseOver ? mouseOverAlpha : alpha
+        print("DEBUG performDraw: alpha=\(a) fgColor=\(fgColor) bgColor=\(bgColor)")
 
         // Draw all backgrounds first
         DrawColorCmd(bgColor).draw(canvas: canvas, alpha: a)
-        for line in lines {
+        for (i, line) in lines.enumerated() {
+            print("DEBUG line[\(i)]: x=\(line.x) y=\(line.y) w=\(line.w) h=\(line.h) baseline=\(line.baseline) bgCmds=\(line.drawBgCommands.count) fgCmds=\(line.drawFgCommands.count)")
             line.drawBg(canvas: canvas, alpha: a)
         }
 
@@ -154,6 +155,27 @@ public final class Gui {
         DrawColorCmd(fgColor).draw(canvas: canvas, alpha: a)
         for line in lines {
             line.drawFg(canvas: canvas, alpha: a)
+        }
+
+        // DEBUG: Save bitmap to PNG
+        if let image = canvas.makeBitmapImage() {
+            print("DEBUG: CGImage created: \(image.width)x\(image.height) bpc=\(image.bitsPerComponent) bpp=\(image.bitsPerPixel) alphaInfo=\(image.alphaInfo.rawValue)")
+            let url = URL(fileURLWithPath: "/tmp/osx-overlay-debug.png")
+            if let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(dest, image, nil)
+                if CGImageDestinationFinalize(dest) {
+                    print("DEBUG: Bitmap saved to /tmp/osx-overlay-debug.png")
+                } else {
+                    print("DEBUG: Failed to finalize PNG")
+                }
+            } else {
+                print("DEBUG: Failed to create image destination")
+            }
+            // Set the rendered bitmap as the layer contents
+            window.setRenderedImage(image)
+        } else {
+            print("DEBUG: makeBitmapImage() returned nil!")
+            window.setRenderedImage(nil)
         }
     }
 

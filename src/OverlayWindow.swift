@@ -1,16 +1,40 @@
 import Cocoa
 
-/// Custom NSView that performs drawing via a callback.
-/// Uses a flipped coordinate system (origin at top-left) to match
-/// the X11 coordinate system used in x11-overlay.
+/// Custom NSView that displays a CGImage as its layer contents.
+/// Uses a layer-backed approach for reliable rendering — the bitmap
+/// is drawn off-screen and set as the layer contents, which persists
+/// across window server compositing cycles.
 final class OverlayContentView: NSView {
-    var drawCallback: ((NSRect) -> Void)?
+    private var renderedImage: CGImage?
 
-    override var isFlipped: Bool { return true }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        drawCallback?(dirtyRect)
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+    }
+
+    override var wantsUpdateLayer: Bool { return true }
+
+    override func makeBackingLayer() -> CALayer {
+        let layer = CALayer()
+        layer.isOpaque = false
+        layer.contentsGravity = .topLeft
+        layer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0
+        return layer
+    }
+
+    override func updateLayer() {
+        layer?.contents = renderedImage
+    }
+
+    /// Sets the rendered bitmap as the layer contents and triggers a display.
+    func setRenderedImage(_ image: CGImage?) {
+        renderedImage = image
+        needsDisplay = true
     }
 }
 
@@ -129,7 +153,7 @@ public final class OverlayWindow {
             let cocoaX = lastMonitorFrame.origin.x + CGFloat(windowX)
 
             let newFrame = NSRect(x: cocoaX, y: cocoaY, width: CGFloat(width), height: CGFloat(height))
-            window.setFrame(newFrame, display: true)
+            window.setFrame(newFrame, display: false)
             contentView.frame = NSRect(x: 0, y: 0, width: width, height: height)
         }
     }
@@ -146,15 +170,9 @@ public final class OverlayWindow {
         return Position(x: relX, y: relY)
     }
 
-    /// Clears the window (triggers redraw with empty content).
-    func clear() {
-        contentView.needsDisplay = true
-    }
-
-    /// Flushes drawing to screen.
-    func flush() {
-        contentView.displayIfNeeded()
-        window.displayIfNeeded()
+    /// Updates the layer contents with a rendered bitmap image.
+    func setRenderedImage(_ image: CGImage?) {
+        contentView.setRenderedImage(image)
     }
 
     /// Shows the window.

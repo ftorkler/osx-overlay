@@ -2,6 +2,11 @@ import Cocoa
 
 /// Drawing canvas using Core Graphics for font rendering and color management.
 /// Mirrors the C++ `X11Canvas` class from x11-overlay, adapted for macOS/Cocoa.
+///
+/// Unlike AppKit's implicit drawing context (which only exists inside NSView.draw()),
+/// this canvas manages its own off-screen CGContext bitmap. Drawing commands write to
+/// this bitmap, and the result is set as the CALayer's contents. This mirrors the X11
+/// persistent drawable model where pixels persist until explicitly cleared.
 public final class OverlayCanvas {
 
     private var fonts: [UInt: NSFont] = [:]
@@ -12,9 +17,56 @@ public final class OverlayCanvas {
     private var fontNames: [UInt: String] = [:]
     private var fontSizes: [UInt: CGFloat] = [:]
 
+    // Off-screen bitmap context for persistent rendering
+    private(set) var bitmapContext: CGContext?
+    private(set) var bitmapWidth: Int = 0
+    private(set) var bitmapHeight: Int = 0
+
     init() {
         // Load a default font
         setFont(fontIndex: 0, fontName: "NotoSansMono-12")
+    }
+
+    /// Creates or resizes the off-screen bitmap context.
+    func ensureBitmap(width: Int, height: Int) {
+        let w = max(width, 1)
+        let h = max(height, 1)
+        guard w != bitmapWidth || h != bitmapHeight else { return }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        guard let ctx = CGContext(
+            data: nil,
+            width: w,
+            height: h,
+            bitsPerComponent: 8,
+            bytesPerRow: w * 4,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo.rawValue
+        ) else { return }
+
+        // Flip the coordinate system so (0,0) is top-left (matching X11)
+        ctx.translateBy(x: 0, y: CGFloat(h))
+        ctx.scaleBy(x: 1, y: -1)
+
+        bitmapContext = ctx
+        bitmapWidth = w
+        bitmapHeight = h
+    }
+
+    /// Clears the entire bitmap to transparent.
+    func clearBitmap() {
+        guard let ctx = bitmapContext else { return }
+        ctx.saveGState()
+        // Reset transform to identity for the clear operation
+        ctx.concatenate(ctx.ctm.inverted())
+        ctx.clear(CGRect(x: 0, y: 0, width: bitmapWidth, height: bitmapHeight))
+        ctx.restoreGState()
+    }
+
+    /// Returns a CGImage of the current bitmap contents.
+    func makeBitmapImage() -> CGImage? {
+        return bitmapContext?.makeImage()
     }
 
     /// Sets a font at the given index. Font name format: "FontName-Size"
@@ -77,16 +129,23 @@ public final class OverlayCanvas {
         )
     }
 
-    /// Draws a filled rectangle.
+    /// Draws a filled rectangle into the off-screen bitmap.
     func drawRect(x: Int, y: Int, w: Int, h: Int) {
-        currentColor.setFill()
-        let rect = NSRect(x: x, y: y, width: w, height: h)
-        rect.fill()
+        guard let ctx = bitmapContext else { return }
+        ctx.setFillColor(currentColor.cgColor)
+        ctx.fill(CGRect(x: x, y: y, width: w, height: h))
     }
 
-    /// Draws a UTF-8 string at the specified position.
+    /// Draws a UTF-8 string at the specified position into the off-screen bitmap.
     func drawString(x: Int, y: Int, text: String) {
+        guard let ctx = bitmapContext else { return }
         guard let font = fonts[currentFontIndex] else { return }
+
+        // Push an NSGraphicsContext wrapping our bitmap CGContext so that
+        // NSString.draw(at:withAttributes:) works outside of NSView.draw().
+        let nsContext = NSGraphicsContext(cgContext: ctx, flipped: true)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = nsContext
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -94,11 +153,14 @@ public final class OverlayCanvas {
         ]
 
         // In x11-overlay, y is the baseline position.
-        // In Cocoa, draw(at:) uses the top-left of the text bounding box.
-        // We need to adjust: Cocoa y = baseline - ascent
-        // But since we're drawing in a flipped view, y maps directly.
-        let point = NSPoint(x: CGFloat(x), y: CGFloat(y))
+        // In our flipped bitmap context, y increases downward just like X11.
+        // NSString.draw(at:) expects the top of the glyph bounding box,
+        // so we need to subtract the ascent to convert from baseline to top.
+        let drawY = CGFloat(y) - font.ascender
+        let point = NSPoint(x: CGFloat(x), y: drawY)
         text.draw(at: point, withAttributes: attributes)
+
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     /// Measures the dimensions of a text string using the current font.
