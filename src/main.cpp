@@ -50,11 +50,8 @@ static Class registerAppDelegateClass() {
 static id createWindow() {
     CGRect frame = {{200, 200}, {800, 600}};
 
-    // NSWindowStyleMask flags
-    unsigned long styleMask = (0 << 0)   // titled
-                            | (0 << 1)   // closable
-                            | (0 << 2)   // miniaturizable
-                            | (0 << 3);  // resizable
+    // NSWindowStyleMaskBorderless — no title bar or chrome
+    unsigned long styleMask = 0;
 
     // [[NSWindow alloc] initWithContentRect:frame
     //                             styleMask:styleMask
@@ -69,6 +66,15 @@ static id createWindow() {
     id title = msg(reinterpret_cast<id>(cls("NSString")),
                    sel_registerName("stringWithUTF8String:"), "OSX Overlay");
     msg(window, sel_registerName("setTitle:"), title);
+
+    // ── Make the window fully transparent ───────────────────────────
+
+    // [window setOpaque:NO]
+    msg<void>(window, sel_registerName("setOpaque:"), NO);
+
+    // [window setBackgroundColor:[NSColor clearColor]]
+    id clearColor = msg(reinterpret_cast<id>(cls("NSColor")), sel_registerName("clearColor"));
+    msg(window, sel_registerName("setBackgroundColor:"), clearColor);
 
     // ── Add a red "Hello world!" label ──────────────────────────────
 
